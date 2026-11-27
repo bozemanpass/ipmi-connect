@@ -3,6 +3,7 @@ package supermicro
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log"
@@ -150,16 +151,22 @@ func (c *Client) serveOnce(ctx context.Context, sink Sink, reclaim bool) (hadCon
 			return false, err
 		}
 	}
-	if ticket.TLS {
-		return false, errors.New(`the BMC has "KVM SSL" enabled, which is not supported; disable it in the BMC web UI`)
-	}
-
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	}
 	conn, err := c.dial(ctx, net.JoinHostPort(c.host, strconv.Itoa(ticket.Port)))
 	if err != nil {
 		return false, fmt.Errorf("KVM port %d: %w", ticket.Port, err)
+	}
+	if ticket.TLS {
+		// "KVM SSL" firmware: the ticket names a TLS port (3520 by default) that carries the
+		// same RFB dialogue inside TLS. The plain port stays open on such firmware too.
+		tconn := tls.Client(conn, bmc.LegacyTLSConfig())
+		if err := tconn.HandshakeContext(ctx); err != nil {
+			_ = conn.Close()
+			return false, fmt.Errorf("KVM port %d TLS handshake: %w", ticket.Port, err)
+		}
+		conn = tconn
 	}
 	_ = conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	r := bufio.NewReader(conn)

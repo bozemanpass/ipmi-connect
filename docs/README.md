@@ -7,6 +7,7 @@ Reverse-engineering notes for the BMCs that `ipmi-connect` talks to. Examples us
 | [protocols.md](protocols.md) | Wire formats: Avocent APCP/BEEF packets, Dell AppWeb API, ATEN RFB |
 | [dell-c6220.md](dell-c6220.md) | Dell C6220 II deep dive: auth flow, JNLP tokens, video engine, keepalives |
 | [supermicro-x8dtl-6f.md](supermicro-x8dtl-6f.md) | Supermicro X8DTL-6F deep dive: CGI quirks, RFB auth, virtual media, power |
+| [supermicro-aspeed.md](supermicro-aspeed.md) | Supermicro A1SRi-2558F (ASPEED AST2400) and similar boards: TLS 1.2 web UI, the "KVM SSL" port, the AST2100 (0x57) video payload |
 
 ## Tested hardware & firmware
 

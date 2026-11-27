@@ -30,6 +30,7 @@ func FuzzReadMessage(f *testing.F) {
 	f.Add(append([]byte{0x39, 0, 0, 0, 1, 0, 0, 0, 4}, make([]byte, 256)...))
 	f.Add(append([]byte{0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 1}, make([]byte, 12)...))
 	f.Add([]byte{0x00, 0x00, 0xff, 0xff})
+	f.Add(fbu(rect(0, 0, 16, 16, encodingAST2100, ast2100Payload(4, 7, 422, endOfFrame))))
 	log.SetOutput(io.Discard) // resizes and notices log
 	f.Cleanup(func() { log.SetOutput(os.Stderr) })
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -121,6 +122,37 @@ func FuzzDecodeHermon(f *testing.F) {
 		for i := 3; i < len(fr.pix); i += 4 {
 			if fr.pix[i] != 0xff {
 				t.Fatalf("alpha at byte %d is %d", i, fr.pix[i])
+			}
+		}
+	})
+}
+
+// FuzzDecodeAST2100 decodes arbitrary 0x57 payloads into pictures of arbitrary (plausible) size.
+// One session keeps its decoder across inputs, as frames update the previous picture.
+func FuzzDecodeAST2100(f *testing.F) {
+	f.Add(uint16(16), uint16(16), ast2100Payload(4, 7, 422, endOfFrame))
+	f.Add(uint16(24), uint16(8), ast2100Payload(0, 0, 444, endOfFrame))
+	f.Add(uint16(720), uint16(400), ast2100Payload(4, 7, 422, make([]byte, 64)))
+	f.Add(uint16(17), uint16(9), ast2100Payload(11, 11, 422, []byte{0, 0, 0, 0xa0, 0xff, 0xff, 0xff, 0xff, 1, 2, 3, 4}))
+	f.Add(uint16(1), uint16(1), []byte{4, 7})
+	s := newSession(nil, nil, ServerInfo{})
+	f.Fuzz(func(t *testing.T, w, h uint16, data []byte) {
+		if w == 0 || h == 0 || int(w)*int(h) > 1<<20 { // the session skips empty rects; keep runs fast
+			t.Skip()
+		}
+		s.frame = &frame{w: int(w), h: int(h)}
+		if err := s.decodeAST2100(data); err != nil {
+			if s.frame.pix != nil {
+				t.Fatalf("error %v but a picture of %d bytes", err, len(s.frame.pix))
+			}
+			return
+		}
+		if len(s.frame.pix) != int(w)*int(h)*4 {
+			t.Fatalf("picture is %d bytes, want %dx%d RGBA", len(s.frame.pix), w, h)
+		}
+		for i := 3; i < len(s.frame.pix); i += 4 {
+			if s.frame.pix[i] != 0xff {
+				t.Fatalf("alpha at byte %d is %d", i, s.frame.pix[i])
 			}
 		}
 	})

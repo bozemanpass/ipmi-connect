@@ -3,11 +3,18 @@ package supermicro
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"io"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +45,44 @@ func fakeRFBWith(t *testing.T, behave func(n int) rfbConn) (addr string, conns c
 	if err != nil {
 		t.Fatal(err)
 	}
+	return serveFakeRFB(t, ln, behave)
+}
+
+// fakeTLSRFB is fakeRFB behind TLS with a self-signed certificate, as "KVM SSL" firmware
+// serves its TLS port.
+func fakeTLSRFB(t *testing.T) (addr string, conns chan net.Conn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &tls.Config{Certificates: []tls.Certificate{selfSignedCert(t)}, MinVersion: tls.VersionTLS12}
+	return serveFakeRFB(t, tls.NewListener(ln, cfg), func(int) rfbConn { return rfbConn{keyboardMouse: true} })
+}
+
+func selfSignedCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048) // the BMCs' certificates are RSA, as are the legacy cipher suites
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "IPMI"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+func serveFakeRFB(t *testing.T, ln net.Listener, behave func(n int) rfbConn) (addr string, conns chan net.Conn) {
+	t.Helper()
 	t.Cleanup(func() { _ = ln.Close() })
 	conns = make(chan net.Conn, 64)
 	go func() {
@@ -193,6 +238,37 @@ func TestClientConnectsDecodesAndLogsOutAfterTheSocket(t *testing.T) {
 	defer web.mu.Unlock()
 	if web.logouts != 1 {
 		t.Errorf("web logouts = %d, want 1 (after the KVM socket closed)", web.logouts)
+	}
+}
+
+// "KVM SSL" firmware hands out a ticket for a TLS port: the client connects there, inside TLS.
+func TestClientUsesTLSWhenTheTicketNamesATLSPort(t *testing.T) {
+	web := &fakeBMCWeb{password: "pw", sid: "0123456789abcdef", kvmTLS: true}
+	rfbAddr, _ := fakeTLSRFB(t)
+	c := NewClient("192.0.2.20", "ADMIN", "pw")
+	c.web = newFakeWeb(t, web)
+	var mu sync.Mutex
+	var dialed []string
+	c.dial = func(ctx context.Context, addr string) (net.Conn, error) {
+		mu.Lock()
+		dialed = append(dialed, addr)
+		mu.Unlock()
+		var d net.Dialer
+		return d.DialContext(ctx, "tcp", rfbAddr)
+	}
+	if err := c.Login(); err != nil {
+		t.Fatalf("Login: %v", err)
+	}
+	sink := &recordingSink{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.Run(ctx, sink)
+
+	waitFor(t, "a decoded frame over TLS", func() bool { n, _, _, _, _ := sink.snapshot(); return n > 0 })
+	mu.Lock()
+	defer mu.Unlock()
+	if len(dialed) == 0 || dialed[0] != "192.0.2.20:3520" {
+		t.Errorf("dialed %q, want the ticket's TLS port 192.0.2.20:3520 first", dialed)
 	}
 }
 

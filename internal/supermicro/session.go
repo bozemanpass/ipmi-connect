@@ -3,12 +3,15 @@ package supermicro
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/mhamzahkhan/ipmi-connect/internal/aspeed"
 )
 
 // Status texts shown to the user.
@@ -60,6 +63,7 @@ type Session struct {
 	keepAliveEvery time.Duration
 
 	frame    *frame
+	ast      *aspeed.Decoder // AST2100 (0x57) streams update the previous picture
 	noSignal bool
 	status   string
 	frames   int // decoded updates since the last FPS report
@@ -238,16 +242,28 @@ func (s *Session) handleUpdate(u FramebufferUpdate, sink Sink) {
 			// update: otherwise one small message listing many empty rects of alternating sizes
 			// would force thousands of multi-megabyte allocations.
 			hermon := r.Encoding == 0x59 || r.Encoding == 0x00
-			if resized || !hermon || len(r.Data) == 0 {
+			ast := r.Encoding == encodingAST2100
+			if resized || (!hermon && !ast) || len(r.Data) == 0 {
 				continue
 			}
-			s.frame = newFrame(int(r.W), int(r.H))
+			if ast {
+				s.frame = &frame{w: int(r.W), h: int(r.H)} // the decoder owns the pixels
+			} else {
+				s.frame = newFrame(int(r.W), int(r.H))
+			}
 			resized = true
 			log.Printf("[Supermicro] Host video mode is %dx%d", r.W, r.H)
 		}
 		switch r.Encoding {
 		case 0x59, 0x00: // Hermon (older firmware reports 0)
 			if err := decodeHermon(r.Data, s.frame); err != nil {
+				log.Printf("[Supermicro] Dropping undecodable update: %v", err)
+				continue
+			}
+			changed = true
+			s.setStatus(sink, s.baseStatus())
+		case encodingAST2100:
+			if err := s.decodeAST2100(r.Data); err != nil {
 				log.Printf("[Supermicro] Dropping undecodable update: %v", err)
 				continue
 			}
@@ -321,4 +337,37 @@ func (s *Session) power(code byte) error {
 		return err
 	}
 	return s.send(mouseInfoRequest())
+}
+
+// encodingAST2100 is ATEN's name for the Aspeed AST2x00 video engine bitstream, sent by
+// Aspeed-based boards (AST2050/AST2300/AST2400) where WPCM450 boards send Hermon.
+const encodingAST2100 = 0x57
+
+// decodeAST2100 applies one 0x57 payload to the picture. The payload is a 4-byte header
+// (luma and chroma quantisation table selectors, then the chroma subsampling mode as a
+// big-endian 422 or 444) followed by the Aspeed bitstream, which the decoder reads as
+// little-endian 32-bit words. A frame may update only some blocks of the previous picture.
+func (s *Session) decodeAST2100(data []byte) error {
+	if len(data) < 4 {
+		return errors.New("ast2100: payload shorter than its header")
+	}
+	h := aspeed.Header{
+		Width: s.frame.w, Height: s.frame.h,
+		LumaSelector: data[0], ChromaSelector: data[1],
+	}
+	switch sub := binary.BigEndian.Uint16(data[2:4]); sub {
+	case 422:
+		h.Mode420 = 1
+	case 444:
+	default:
+		return fmt.Errorf("ast2100: unexpected subsampling mode %d", sub)
+	}
+	if s.ast == nil {
+		s.ast = aspeed.NewDecoder()
+	}
+	if err := s.ast.Decode(h, data[4:]); err != nil {
+		return fmt.Errorf("ast2100: %w", err)
+	}
+	s.frame.pix = s.ast.Frame()
+	return nil
 }

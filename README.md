@@ -39,6 +39,8 @@ It has been tested on the two boards I own. Other BMCs running the same firmware
 
 The console also has typed paste (send your clipboard as keystrokes), screenshots, scaling and fullscreen with keyboard lock.
 
+A Supermicro A1SRi-2558F (ASPEED AST2400 BMC, ATEN firmware with the `iKVM__V1.69.25` viewer, TLS 1.2 web UI, "KVM SSL" on) has also been tried by a contributor: login, video (the AST2100 encoding), keyboard and power status work; see [docs/supermicro-aspeed.md](docs/supermicro-aspeed.md).
+
 ## How to run
 
 You need Go 1.27.2 or newer.
@@ -75,7 +77,7 @@ Be aware that it can power-cycle and reset servers, and that virtual media can w
 These BMCs predate modern TLS, so use ipmi-connect on a trusted management network.
 
 - BMC certificates are not verified. The BMCs use self-signed certificates and TLS 1.0, so the client accepts any certificate. Someone who can intercept traffic between you and the BMC could see the web login, which carries your password.
-- Supermicro KVM and virtual media are not encrypted. The screen and keystrokes travel in plain RFB (the firmware's "KVM SSL" mode is not supported), and virtual media uses RC4 under a fixed key published in the vendor client. Your password is not sent on these channels: they use one-time tickets from the web session.
+- Supermicro KVM and virtual media are not encrypted on most firmware. The screen and keystrokes travel in plain RFB unless the firmware's "KVM SSL" option is on, in which case the KVM session runs inside TLS (certificate not verified); virtual media uses RC4 under a fixed key published in the vendor client. Your password is not sent on these channels: they use one-time tickets from the web session.
 - The local console listens on 127.0.0.1 only. API and WebSocket requests need a per-run token, obtained through the one-time code in the launch link, and cross-site requests are refused.
 
 ## How it was built
