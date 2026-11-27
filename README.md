@@ -39,7 +39,7 @@ It has been tested on the two boards I own. Other BMCs running the same firmware
 
 The console also has typed paste (send your clipboard as keystrokes), screenshots, scaling and fullscreen with keyboard lock.
 
-A Supermicro A1SRi-2558F (ASPEED AST2400 BMC, ATEN firmware with the `iKVM__V1.69.25` viewer, TLS 1.2 web UI, "KVM SSL" on) has also been tried by a contributor: login, video (the AST2100 encoding), keyboard and power status work; see [docs/supermicro-aspeed.md](docs/supermicro-aspeed.md).
+A Supermicro A1SRi-2558F (ASPEED AST2400 BMC, ATEN firmware 2.23 with the `iKVM__V1.69.25` viewer, TLS 1.2 web UI, "KVM SSL" on) has also been tried by a contributor: login, video (the AST2100 encoding), keyboard and power status work; see [docs/supermicro-aspeed.md](docs/supermicro-aspeed.md).
 
 ## How to run
 

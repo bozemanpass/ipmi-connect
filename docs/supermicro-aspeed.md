@@ -10,6 +10,8 @@ media are the same as on the X8DTL-6F; this page only lists what differs.
 
 - **Board**: A1SRi-2558F (Intel Atom C2558, Mini-ITX)
 - **BMC hardware**: ASPEED AST2400 (the vendor viewer it serves is `iKVM__V1.69.25`)
+- **BMC firmware**: `2.23` (`ipmitool mc info`; the firmware reports product ID `0x0813`,
+  "X10SEAA-LN4F", as Supermicro ships one BMC image across boards of a generation)
 - **Web server**: HTTP on 80, HTTPS on 443 with **TLS 1.2 only**, `ECDHE-RSA-AES256-GCM-SHA384`.
   CBC suites are refused, so a client that offers only TLS 1.0 era CBC ciphers fails the handshake.
 - **Certificate**: self-signed, `CN=IPMI`, issued by Super Micro Computer (expired)
