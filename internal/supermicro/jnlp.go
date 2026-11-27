@@ -14,7 +14,7 @@ import (
 type Ticket struct {
 	User, Password string
 	Port           int
-	TLS            bool // "KVM SSL" firmware; not supported yet
+	TLS            bool // "KVM SSL" firmware: Port is a TLS port
 }
 
 // maxTicketToken rejects implausible KVM tokens. The BMC issues 16-character tokens and the

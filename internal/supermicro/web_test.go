@@ -16,7 +16,8 @@ type fakeBMCWeb struct {
 	mu        sync.Mutex
 	password  string
 	sid       string
-	jnlpFails int // answer the first N JNLP requests with an HTML page
+	jnlpFails int  // answer the first N JNLP requests with an HTML page
+	kvmTLS    bool // "KVM SSL" firmware: the JNLP names a TLS port after the "1" flag
 	power     []string
 	logouts   int
 	cookies   []string
@@ -43,9 +44,13 @@ func (f *fakeBMCWeb) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = io.WriteString(w, `<html>please log in</html>`)
 			return
 		}
-		_, _ = io.WriteString(w, `<jnlp><application-desc><argument>192.0.2.20</argument>`+
-			`<argument>tok</argument><argument>tok</argument><argument>null</argument>`+
-			`<argument>5900</argument></application-desc></jnlp>`)
+		args := `<argument>192.0.2.20</argument><argument>tok</argument><argument>tok</argument>` +
+			`<argument>null</argument><argument>5900</argument>`
+		if f.kvmTLS {
+			args += `<argument>623</argument><argument>0</argument><argument>0</argument>` +
+				`<argument>1</argument><argument>3520</argument>`
+		}
+		_, _ = io.WriteString(w, `<jnlp><application-desc>`+args+`</application-desc></jnlp>`)
 	case "/cgi/ipmi.cgi":
 		_ = r.ParseForm()
 		q := r.PostForm.Get("POWER_INFO.XML")
